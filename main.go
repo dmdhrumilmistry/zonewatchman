@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -10,11 +11,11 @@ import (
 )
 
 type Zone struct {
-	Id                     string                       `json:"id,omitempty"`
-	Name                   string                       `json:"name,omitempty"`
-	Comment                string                       `json:"comment,omitempty"`
-	ResourceRecordSetCount int64                        `json:"resourceRecordSetCount,omitempty"`
-	IsPrivateZone          bool                         `json:"isPrivateZone,omitempty"`
+	Id                     *string                      `json:"id,omitempty"`
+	Name                   *string                      `json:"name,omitempty"`
+	Comment                *string                      `json:"comment,omitempty"`
+	ResourceRecordSetCount *int64                       `json:"resourceRecordSetCount,omitempty"`
+	IsPrivateZone          *bool                        `json:"isPrivateZone,omitempty"`
 	Records                []*route53.ResourceRecordSet `json:"records,omitempty"`
 }
 
@@ -56,24 +57,35 @@ func getAllZoneDomains(sess *session.Session) ([]*Zone, error) {
 	zonesData := make([]*Zone, 0)
 
 	// append zone data into slice
-	for _, zone := range hostedZones {
+	mu := sync.Mutex{}
+	wg := sync.WaitGroup{}
+	for _, zoneData := range hostedZones {
 		// List resource record sets for each hosted zone
-		resourceRecordSets, err := listResourceRecordSets(sess, aws.StringValue(zone.Id))
-		if err != nil {
-			fmt.Println("Error listing resource record sets:", err)
-			os.Exit(1)
-		}
+		wg.Add(1)
 
-		zonesData = append(zonesData, &Zone{
-			Id:                     *zone.Id,
-			Name:                   *zone.Name,
-			Comment:                *zone.Config.Comment,
-			IsPrivateZone:          *zone.Config.PrivateZone,
-			ResourceRecordSetCount: *zone.ResourceRecordSetCount,
-			Records:                resourceRecordSets,
-		})
+		go func(zone *route53.HostedZone) {
+			defer wg.Done()
+			resourceRecordSets, err := listResourceRecordSets(sess, aws.StringValue(zone.Id))
+			if err != nil {
+				fmt.Println("Error listing resource record sets:", err)
+				os.Exit(1)
+			}
 
+			mu.Lock()
+			defer mu.Unlock()
+
+			zonesData = append(zonesData, &Zone{
+				Id:                     zone.Id,
+				Name:                   zone.Name,
+				Comment:                zone.Config.Comment,
+				IsPrivateZone:          zone.Config.PrivateZone,
+				ResourceRecordSetCount: zone.ResourceRecordSetCount,
+				Records:                resourceRecordSets,
+			})
+		}(zoneData)
 	}
+
+	wg.Wait()
 
 	return zonesData, nil
 }
@@ -91,6 +103,6 @@ func main() {
 		os.Exit(1)
 	}
 	for _, domain := range hostedDomains {
-		fmt.Println(domain)
+		fmt.Println(*domain)
 	}
 }
