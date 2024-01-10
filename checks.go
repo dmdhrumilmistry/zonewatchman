@@ -1,8 +1,11 @@
 package main
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
-func testDnsAtypeEntries(resourceSet []*FilteredResourceRecordSet) []*TakeOverCheck {
+func testDnsAtypeEntries(resourceSet []*FilteredResourceRecordSet, awsElasticIps []*string) []*TakeOverCheck {
 	var checks []*TakeOverCheck
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -10,14 +13,16 @@ func testDnsAtypeEntries(resourceSet []*FilteredResourceRecordSet) []*TakeOverCh
 	for _, resourceRecord := range resourceSet {
 		for _, ip := range resourceRecord.ResourceRecords {
 			wg.Add(1)
+
 			go func(resourceRecord *FilteredResourceRecordSet, ip string) {
 				defer wg.Done()
 				err := makeGetRequest(false, ip, 80) // http
-
-				IsVulnerable := false
 				if err != nil {
-					IsVulnerable = true
+					fmt.Printf("[!!] %s Host is not reachable\n", ip)
 				}
+
+				IsVulnerable := !IsAwsIp(awsElasticIps, ip)
+
 				mu.Lock()
 				defer mu.Unlock()
 
