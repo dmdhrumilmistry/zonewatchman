@@ -1,4 +1,4 @@
-module dmdhrumilmistry/zonewatchman
+module github.com/dmdhrumilmistry/zonewatchman
 
 go 1.21.5
 
